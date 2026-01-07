@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { DrawnCard } from '../types';
 
 interface InterpretationModalProps {
@@ -6,157 +6,114 @@ interface InterpretationModalProps {
   onClose: () => void;
   aiAnalysis: { visual: string, interpretation: string, advice: string } | null;
   isLoading: boolean;
+  loadingMessage?: string;
   error?: string | null;
 }
 
+// 打字机 Hook
 const useTypewriter = (text: string, speed: number = 20, startDelay: number = 0, enabled: boolean = true) => {
   const [displayedText, setDisplayedText] = useState('');
   const [isComplete, setIsComplete] = useState(false);
-
   useEffect(() => {
     if(!enabled) return;
-    setDisplayedText('');
-    setIsComplete(false);
-    
-    let timeoutId: ReturnType<typeof setInterval>;
+    setDisplayedText(''); setIsComplete(false);
+    let timeoutId: any;
     const startTimeout = setTimeout(() => {
         let i = 0;
         timeoutId = setInterval(() => {
             if (i < text.length) {
                 setDisplayedText(prev => prev + text.charAt(i));
                 i++;
-            } else {
-                clearInterval(timeoutId);
-                setIsComplete(true);
-            }
+            } else { clearInterval(timeoutId); setIsComplete(true); }
         }, speed);
     }, startDelay);
-
-    return () => {
-        clearTimeout(startTimeout);
-        if(timeoutId) clearInterval(timeoutId);
-    };
+    return () => { clearTimeout(startTimeout); if(timeoutId) clearInterval(timeoutId); };
   }, [text, speed, startDelay, enabled]);
-
   return { displayedText, isComplete };
 };
 
-const InterpretationModal: React.FC<InterpretationModalProps> = ({ card, onClose, aiAnalysis, isLoading, error }) => {
+const InterpretationModal: React.FC<InterpretationModalProps> = ({ 
+  card, onClose, aiAnalysis, isLoading, loadingMessage = "正在读取星辰的旨意...", error 
+}) => {
   const orientationText = card.orientation === 'UPRIGHT' ? '正位' : '逆位';
-  
-  // Use AI data or Fallback
-  const visualText = aiAnalysis?.visual || "";
-  const interpText = aiAnalysis?.interpretation || "";
-  const adviceText = aiAnalysis?.advice || "";
-
-  // Only start typing when data is present (not loading) AND text is not empty
   const hasData = !isLoading && !!aiAnalysis;
-  
-  const typeVisual = useTypewriter(visualText, 10, 0, hasData);
-  const typeInterp = useTypewriter(interpText, 10, 0, hasData && typeVisual.isComplete);
-  const typeAdvice = useTypewriter(adviceText, 10, 0, hasData && typeInterp.isComplete);
+  const typeVisual = useTypewriter(aiAnalysis?.visual || "", 15, 0, hasData);
+  const typeInterp = useTypewriter(aiAnalysis?.interpretation || "", 15, 0, hasData && typeVisual.isComplete);
+  const typeAdvice = useTypewriter(aiAnalysis?.advice || "", 15, 0, hasData && typeInterp.isComplete);
 
-  const allComplete = hasData && typeAdvice.isComplete;
+  // --- 新增：卡牌倾斜交互逻辑 ---
+  const [tilt, setTilt] = useState({ x: 0, y: 0 });
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const { clientX, clientY } = e;
+    const { innerWidth, innerHeight } = window;
+    // 计算鼠标相对于屏幕中心的偏移量 (-1 到 1)
+    const x = (clientX - innerWidth / 2) / (innerWidth / 2);
+    const y = (clientY - innerHeight / 2) / (innerHeight / 2);
+    setTilt({ x: x * 20, y: -y * 20 }); // 20 是倾斜幅度，可以按需调整
+  };
 
   return (
-    // Reduced backdrop blur for performance
-    <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-[#0f0518]/90 backdrop-blur-sm animate-fade-in">
-      <div className="relative w-full max-w-5xl h-[85vh] bg-[#1a0b2e] rounded-3xl border border-purple-500/30 shadow-[0_0_50px_rgba(168,85,247,0.2)] flex flex-col md:flex-row overflow-hidden">
-        
-        {/* Left: Card Image */}
-        <div className="w-full md:w-1/3 h-48 md:h-full bg-black/20 flex items-center justify-center p-8 relative border-b md:border-b-0 md:border-r border-white/10">
-            <div className={`relative w-full max-w-[280px] aspect-[3/5] rounded-xl shadow-2xl transition-all duration-1000 ${isLoading ? 'scale-95 opacity-50 blur-sm' : 'scale-100 opacity-100 blur-0'}`}>
+    <div 
+      className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-[#050208]/80 backdrop-blur-xl animate-in fade-in duration-700"
+      onClick={onClose}
+      onMouseMove={handleMouseMove} // 监听鼠标移动
+    >
+      <div 
+        className="relative flex flex-col items-center w-full max-w-2xl px-6 py-20"
+        onClick={(e) => e.stopPropagation()}
+        style={{ perspective: '1000px' }} // 开启 3D 视角
+      >
+        {/* 卡牌容器：应用旋转效果 */}
+        <div 
+          className="relative mb-12 transition-transform duration-200 ease-out"
+          style={{ 
+            transform: `rotateY(${tilt.x}deg) rotateX(${tilt.y}deg)`,
+            transformStyle: 'preserve-3d'
+          }}
+        >
+            <div className="absolute -inset-4 bg-purple-600/20 blur-3xl rounded-full opacity-50"></div>
+            
+            <div className={`relative w-64 md:w-80 aspect-[3/5] rounded-2xl shadow-[0_0_60px_rgba(168,85,247,0.3)] ${isLoading ? 'blur-md opacity-40' : ''}`}>
                 <img 
                     src={card.url} 
                     alt={card.name} 
-                    className={`w-full h-full object-cover rounded-xl ${card.orientation === 'REVERSED' ? 'rotate-180' : ''}`}
+                    className={`w-full h-full object-cover rounded-2xl border border-white/10 ${card.orientation === 'REVERSED' ? 'rotate-180' : ''}`}
                 />
-                <div className="absolute inset-0 rounded-xl border-2 border-purple-400/30 pointer-events-none"></div>
+                {/* 增加一个高光层，随摇摆变化 */}
+                <div 
+                  className="absolute inset-0 rounded-2xl pointer-events-none"
+                  style={{
+                    background: `radial-gradient(circle at ${50 + tilt.x}% ${50 + tilt.y}%, rgba(255,255,255,0.1) 0%, transparent 80%)`
+                  }}
+                />
             </div>
-            
-            {/* Loading Overlay */}
+
             {isLoading && (
-                 <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-[#1a0b2e]/40 backdrop-blur-sm">
-                     <div className="text-4xl animate-spin mb-4">🔮</div>
-                     <div className="text-purple-300 font-serif tracking-widest text-sm animate-pulse">
-                        连接宇宙...
-                     </div>
+                 <div className="absolute inset-0 flex flex-col items-center justify-center">
+                     <div className="text-5xl animate-bounce mb-4">🔮</div>
+                     <div className="text-purple-300 tracking-[0.3em] text-xs animate-pulse uppercase">{loadingMessage}</div>
                  </div>
             )}
         </div>
 
-        {/* Right: Text Content */}
-        <div className="flex-1 p-8 md:p-10 flex flex-col h-full overflow-y-auto custom-scrollbar relative">
-            
-            {/* Header */}
-            <div className="mb-6 border-b border-white/10 pb-4">
-                <div className="flex items-center gap-3 mb-1">
-                    <span className="bg-purple-900/50 text-purple-300 px-2 py-0.5 rounded text-xs tracking-wider uppercase">
-                        {card.spreadName}
-                    </span>
-                    <span className="text-white/40 text-xs tracking-widest uppercase">
-                        {card.spreadPosition}
-                    </span>
-                </div>
-                <h2 className="text-3xl md:text-4xl font-bold text-white mb-2 font-serif">
-                    {card.name}
-                </h2>
-                <div className={`text-sm tracking-widest font-bold ${card.orientation === 'UPRIGHT' ? 'text-green-400' : 'text-red-400'}`}>
-                    {orientationText} ( {card.orientation} )
-                </div>
+        {/* 文字区域（保持不变） */}
+        <div className="w-full text-center space-y-8">
+            <div className="space-y-2">
+                <p className="text-purple-400/60 text-[10px] tracking-[0.4em] uppercase font-bold">{card.spreadName} · {card.spreadPosition}</p>
+                <h2 className="text-4xl md:text-5xl font-serif text-white">{card.name}</h2>
+                <p className={`text-xs tracking-[0.5em] font-bold uppercase ${card.orientation === 'UPRIGHT' ? 'text-emerald-400' : 'text-rose-400'}`}>{orientationText}</p>
             </div>
 
-            {/* Error Message */}
-            {error && (
-                <div className="bg-red-900/20 border border-red-500/30 text-red-200 p-4 rounded-xl mb-4 text-sm">
-                    {error}
-                </div>
-            )}
-
-            {/* Content Blocks */}
-            <div className="space-y-6 flex-1 text-sm md:text-base leading-relaxed font-light text-gray-200">
-                
-                {/* 1. Visual */}
-                <div className={`transition-opacity duration-500 ${hasData ? 'opacity-100' : 'opacity-30'}`}>
-                    <h3 className="text-purple-400 text-xs font-bold uppercase tracking-widest mb-1">【画面与意象】</h3>
-                    <p className="min-h-[2rem] whitespace-pre-wrap text-purple-100/90">
-                        {hasData ? typeVisual.displayedText : "正在凝视深渊..."}
-                    </p>
-                </div>
-
-                {/* 2. Interpretation */}
-                {(hasData && typeVisual.isComplete) && (
-                    <div className="animate-slide-up">
-                        <h3 className="text-blue-400 text-xs font-bold uppercase tracking-widest mb-1">【当下的启示】</h3>
-                        <p className="min-h-[3rem] whitespace-pre-wrap text-blue-100/90">
-                            {typeInterp.displayedText}
-                        </p>
-                    </div>
-                )}
-
-                {/* 3. Advice */}
-                {(hasData && typeInterp.isComplete) && (
-                     <div className="animate-slide-up bg-white/5 p-4 rounded-xl border-l-2 border-yellow-400/50 mt-4">
-                        <h3 className="text-yellow-400 text-xs font-bold uppercase tracking-widest mb-1">【光之指引】</h3>
-                        <p className="italic min-h-[2rem] whitespace-pre-wrap text-yellow-100">
-                            {typeAdvice.displayedText}
-                        </p>
+            <div className="space-y-10 text-gray-300 font-light leading-relaxed text-base md:text-lg">
+                {hasData && <p className="italic text-purple-100/70 text-sm">{typeVisual.displayedText}</p>}
+                {typeVisual.isComplete && <p className="text-white/90">{typeInterp.displayedText}</p>}
+                {typeInterp.isComplete && (
+                     <div className="bg-white/5 py-8 px-6 rounded-2xl border border-white/5 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+                        <p className="text-yellow-100/90 font-serif italic text-xl">{typeAdvice.displayedText}</p>
                     </div>
                 )}
             </div>
-
-            {/* Footer Actions */}
-            <div className="mt-6 pt-4 flex justify-end">
-                <button 
-                    onClick={onClose}
-                    className={`
-                        px-8 py-3 rounded-full font-bold tracking-widest transition-all duration-300 flex items-center gap-2
-                        bg-white text-[#1a0b2e] hover:bg-purple-200 hover:scale-105 shadow-[0_0_20px_rgba(255,255,255,0.2)]
-                    `}
-                >
-                    {allComplete ? 'CLOSE' : 'SKIP / CLOSE'}
-                </button>
-            </div>
+            <div className="pt-12 pb-20 opacity-20"><p className="text-[10px] tracking-[0.3em] text-white uppercase animate-pulse">—— 点击空白处返回 ——</p></div>
         </div>
       </div>
     </div>

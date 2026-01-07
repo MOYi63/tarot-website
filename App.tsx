@@ -35,9 +35,12 @@ const App: React.FC = () => {
   const [resultModalCard, setResultModalCard] = useState<DrawnCard | null>(null);
   const [aiAnalysis, setAiAnalysis] = useState<{visual: string, interpretation: string, advice: string} | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("连接宇宙...");
   const [aiError, setAiError] = useState<string | null>(null);
 
-  // AI Generation
+  // AI Generation Helper
+  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
   const generateInterpretation = async (card: DrawnCard) => {
     if (!process.env.API_KEY) {
         console.warn("API_KEY not found");
@@ -46,10 +49,21 @@ const App: React.FC = () => {
     }
 
     setIsAiLoading(true);
+    setLoadingMessage("正在连接宇宙能量...");
     setAiAnalysis(null);
     setAiError(null);
 
-    try {
+    const MAX_RETRIES = 3;
+    let attempt = 0;
+    let success = false;
+
+    while (attempt < MAX_RETRIES && !success) {
+      try {
+        attempt++;
+        if (attempt > 1) {
+            setLoadingMessage(`信号微弱，正在进行第 ${attempt} 次尝试...`);
+        }
+
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const spreadContext = card.spreadContext || '无';
         const position = card.spreadPosition || '单张';
@@ -78,11 +92,22 @@ const App: React.FC = () => {
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: prompt,
+            config: {
+                // Safety settings can be adjusted here if needed, keeping defaults for now
+            }
         });
+
+        // Check for safety blocks or empty responses
+        if (!response.text && response.candidates?.[0]?.finishReason) {
+            const reason = response.candidates[0].finishReason;
+            if (reason !== 'STOP') {
+                throw new Error(`BLOCKED_${reason}`);
+            }
+        }
 
         const text = response.text || "";
         
-        // Parsing logic - more robust to handle slight variations
+        // Parsing logic
         const visualMatch = text.match(/【画面.*?】[：:\s]*([\s\S]*?)(?=【当下|【我的|【光|$)/);
         const interpMatch = text.match(/【当下.*?】[：:\s]*([\s\S]*?)(?=【光|【给|$)/);
         const adviceMatch = text.match(/【光.*?】[：:\s]*([\s\S]*?)$/);
@@ -92,23 +117,59 @@ const App: React.FC = () => {
             interpretation: interpMatch ? interpMatch[1].trim() : text.slice(0, 100) + "...",
             advice: adviceMatch ? adviceMatch[1].trim() : "静心感受内心的指引。"
         });
+        
+        success = true;
 
-    } catch (e: any) {
-        console.error("AI Generation failed", e);
-        let errorMsg = "连接宇宙能量时遇到了一些波动...";
-        if (e.message?.includes("Permission denied") || e.status === 403) {
-            errorMsg = "未能调用 Gemini API：权限被拒。请检查 API Key 权限或余额。";
+      } catch (e: any) {
+        console.error(`AI Generation Attempt ${attempt} failed`, e);
+        
+        // Analyze Error
+        let isRetryable = true;
+        let userMessage = "连接宇宙能量时遇到了一些波动...";
+        
+        const status = e.status || e.response?.status;
+        const message = e.message || "";
+
+        if (status === 401 || status === 403) {
+            userMessage = "API 密钥无效或权限不足 (401/403)。请检查配置。";
+            isRetryable = false;
+        } else if (status === 404) {
+            userMessage = "请求的模型不存在 (404)。请检查代码配置。";
+            isRetryable = false;
+        } else if (status === 429) {
+            userMessage = "宇宙讯息过于密集 (429 Quota Exceeded)。";
+            isRetryable = true;
+        } else if (status >= 500) {
+            userMessage = "宇宙通道暂时拥堵 (5xx Server Error)。";
+            isRetryable = true;
+        } else if (message.includes("BLOCKED")) {
+            userMessage = "解读内容触犯了禁忌 (Safety Block)。";
+            isRetryable = false;
+        } else if (message.includes("fetch") || message.includes("network")) {
+            userMessage = "网络连接已断开，请检查网络。";
+            isRetryable = true;
         }
-        setAiError(errorMsg);
-        // Fallback content
-        setAiAnalysis({
-            visual: "星光暂时黯淡...",
-            interpretation: "暂时无法获取详细的宇宙讯息，请相信你第一眼的直觉。",
-            advice: "答案往往就在你自己心中。"
-        });
-    } finally {
-        setIsAiLoading(false);
+
+        // If not retryable, or last attempt failed
+        if (!isRetryable || attempt === MAX_RETRIES) {
+            setAiError(userMessage);
+            // Fallback content to ensure user still gets an experience
+            setAiAnalysis({
+                visual: "星光暂时黯淡...",
+                interpretation: "暂时无法获取详细的宇宙讯息，请相信你第一眼的直觉。",
+                advice: "答案往往就在你自己心中。"
+            });
+            break;
+        }
+
+        // Wait before retry
+        if (isRetryable) {
+            await sleep(1000 * Math.pow(2, attempt)); // Exponential backoff: 2s, 4s, 8s...
+        }
+      }
     }
+    
+    setIsAiLoading(false);
   };
 
   // 1. Card Selected (Start AI immediately in background)
@@ -239,6 +300,7 @@ const App: React.FC = () => {
             card={resultModalCard} 
             aiAnalysis={aiAnalysis}
             isLoading={isAiLoading}
+            loadingMessage={loadingMessage}
             error={aiError}
             onClose={handleModalClose} 
         />
@@ -391,7 +453,7 @@ const App: React.FC = () => {
       <div className="absolute bottom-12 w-full flex flex-col items-center justify-center z-20 pointer-events-none">
         {mode === 'CAMERA' && (
              <div className="mb-6 text-purple-300/70 text-sm animate-bounce flex items-center gap-2 bg-[#240046]/80 px-4 py-1 rounded-full backdrop-blur-sm border border-white/10">
-                 <span>👋</span> 张开手快速滑动，食指悬停减速，两指捏合抓取
+                 <span>👋</span> 张开手快速滑动，食指悬停减速，食指翻转抓取
              </div>
         )}
         <div className="relative pointer-events-auto">
@@ -403,7 +465,7 @@ const App: React.FC = () => {
                 onClick={() => setMode(mode === 'CAMERA' ? 'MOUSE' : 'CAMERA')}
                 className="relative px-6 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white font-bold tracking-wide backdrop-blur-md border border-white/10 transition-all text-sm z-10 shadow-lg"
              >
-               {mode === 'CAMERA' ? '切换至鼠标' : '切换至摄像头'}
+               {mode === 'CAMERA' ? '切换至鼠标🖱' : '切换至摄像头📹'}
              </button>
         </div>
       </div>
