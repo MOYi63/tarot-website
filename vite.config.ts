@@ -9,6 +9,8 @@ const __dirname = path.dirname(__filename);
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
+      // 核心修复：添加基础路径，必须和你 GitHub 仓库名称一致，前后都要有斜杠
+      base: '/tarot-website/', 
       server: {
         port: 3000,
         host: '0.0.0.0',
