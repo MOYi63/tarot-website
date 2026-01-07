@@ -1,0 +1,7 @@
+{
+  "name": "神秘塔罗",
+  "description": "基于 Three.js 和 MediaPipe 的手势控制 3D 塔罗牌占卜体验。",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
