@@ -1,9 +1,8 @@
 import { TarotCardData, CardSuit, SpreadDefinition } from './types';
 
-// 使用 wsrv.nl 代理访问 Imgur 或其他外网图片，确保国内可见
-// 并对其进行压缩优化 (q=80)
-export const CARD_BACK_URL = "https://wsrv.nl/?url=raw.githubusercontent.com/iamfiscus/tarot-api/master/static/card_back.jpg&q=80&output=webp"; 
-// 备用纯色图，如果上面加载失败
+// 使用 jsDelivr CDN 加载 GitHub 资源，速度更快且更稳定
+export const CARD_BACK_URL = "https://cdn.jsdelivr.net/gh/iamfiscus/tarot-api@master/static/card_back.jpg"; 
+// 备用纯色图
 export const CARD_BACK_FALLBACK = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mN88F/rPwAI8wNQD6Y5rAAAAABJRU5ErkJggg==";
 
 // --- SPREAD DEFINITIONS (牌阵定义) ---
@@ -56,10 +55,9 @@ export const SPREADS: SpreadDefinition[] = [
   }
 ];
 
-// 辅助函数：生成国内可访问的图片链接
-// 使用 wsrv.nl 代理 github raw content
+// 辅助函数：生成 CDN 图片链接
 const getCardUrl = (filename: string) => {
-    return `https://wsrv.nl/?url=raw.githubusercontent.com/iamfiscus/tarot-api/master/static/cards/${filename}&w=400&q=75&output=webp`;
+    return `https://cdn.jsdelivr.net/gh/iamfiscus/tarot-api@master/static/cards/${filename}`;
 };
 
 // --- MAJOR ARCANA BASE (大阿尔卡纳) ---
