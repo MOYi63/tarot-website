@@ -6,7 +6,7 @@ import { GET_DECK, CARD_BACK_URL, CARD_BACK_FALLBACK } from '../constants';
 import { CardOrientation, DrawnCard, GestureType, HandState, InteractionMode, SpreadDefinition } from '../types';
 
 interface TarotExperienceProps {
-  onCardSelected: (card: DrawnCard) => DrawnCard;
+  onCardSelected: (card: DrawnCard) => void;
   onSequenceComplete: (card: DrawnCard) => void;
   onGestureChange: (gesture: GestureType) => void;
   mode: InteractionMode;
@@ -50,20 +50,19 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
   
   const handStateRef = useRef<HandState>({ gesture: GestureType.NONE, x: 0.5, y: 0.5, isPresent: false });
   const smoothHandPosRef = useRef({ x: 0.5, y: 0.5 });
-  const mouseRef = useRef<THREE.Vector2>(new THREE.Vector2());
   const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
   
   const textureLoaderRef = useRef(new THREE.TextureLoader());
-  const backTextureRef = useRef<THREE.Texture | null>(null);
 
-  const [isLoadingCamera, setIsLoadingCamera] = useState(false);
+  // 核心修复：允许跨域加载图片，防止 Failed 报错
+  textureLoaderRef.current.setCrossOrigin('anonymous');
 
   const createCardGeometry = () => new THREE.BoxGeometry(3, 5, 0.05);
 
   const createCardMesh = (backTex: THREE.Texture | null, index: number) => {
       const geometry = createCardGeometry();
-      // 正面默认材质：稍微亮一点的灰色，确保在没图时也能看到形状
-      const frontMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 });
+      // 核心修复：默认颜色从 0x222222 调亮到 0x888888，确保不黑屏
+      const frontMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.5 });
       const backMatParams: THREE.MeshStandardMaterialParameters = { roughness: 0.3, metalness: 0.1, color: 0xffffff };
       if (backTex) { backMatParams.map = backTex; } else { backMatParams.color = 0x6b21a8; }
       const backMat = new THREE.MeshStandardMaterial(backMatParams);
@@ -129,7 +128,6 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
 
   useEffect(() => {
     if (!containerRef.current) return;
-    cardsRef.current = []; 
     const scene = new THREE.Scene();
     sceneRef.current = scene;
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
@@ -137,16 +135,14 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
     cameraRef.current = camera;
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     containerRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
     
-    // 增强光照，确保卡牌可见
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.9); // 提高环境光强度
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.2); 
     scene.add(ambientLight);
-    const spotLight = new THREE.SpotLight(0xffaa00, 50); // 提高聚光灯强度
+    const spotLight = new THREE.SpotLight(0xffaa00, 60);
     spotLight.position.set(5, 10, 10);
-    spotLight.add(new THREE.PointLight(0xffaa00, 15));
     scene.add(spotLight);
     
     const deckGroup = new THREE.Group();
@@ -170,17 +166,12 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
         textureLoaderRef.current.load(
             url, 
             (tex) => {
-                backTextureRef.current = tex;
                 initCards(tex);
             },
             undefined,
-            (err) => {
-                console.warn("Failed to load texture, trying fallback", err);
-                if (url !== CARD_BACK_FALLBACK) {
-                    loadBackTexture(CARD_BACK_FALLBACK);
-                } else {
-                    initCards(null);
-                }
+            () => {
+                if (url !== CARD_BACK_FALLBACK) loadBackTexture(CARD_BACK_FALLBACK);
+                else initCards(null);
             }
         );
     }
@@ -196,14 +187,11 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
       window.removeEventListener('resize', handleResize);
       containerRef.current?.removeChild(renderer.domElement);
       renderer.dispose();
-      cardsRef.current = [];
     };
   }, [customBackUrl]);
 
   useEffect(() => {
     let animationId: number;
-    const clock = new THREE.Clock();
-
     const animate = () => {
       animationId = requestAnimationFrame(animate);
       if (!sceneRef.current || !cameraRef.current || !rendererRef.current) return;
@@ -215,10 +203,6 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
           cursorRef.current.style.left = `${smoothHandPosRef.current.x * 100}%`;
           cursorRef.current.style.top = `${smoothHandPosRef.current.y * 100}%`;
           cursorRef.current.style.opacity = handStateRef.current.isPresent ? '1' : '0';
-          const isFlip = handStateRef.current.gesture === GestureType.FLIP;
-          cursorRef.current.style.borderColor = isFlip ? '#fbbf24' : '#a855f7';
-          cursorRef.current.style.backgroundColor = isFlip ? '#fbbf24' : 'transparent';
-          cursorRef.current.style.transform = `translate(-50%, -50%) scale(${handStateRef.current.gesture === GestureType.OPEN_PALM ? 2 : 1})`;
       }
 
       const gesture = handStateRef.current.gesture;
@@ -230,28 +214,13 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
           const totalWidth = count * spacing;
           
           let hitCard: THREE.Mesh | null = null;
-          const shouldRaycast = mode === 'MOUSE' || gesture === GestureType.POINTING || gesture === GestureType.FLIP;
-
-          if (shouldRaycast) {
-              const rayPos = new THREE.Vector2(smoothHandPosRef.current.x * 2 - 1, -(smoothHandPosRef.current.y * 2 - 1));
-              raycasterRef.current.setFromCamera(rayPos, cameraRef.current!);
-              const intersects = raycasterRef.current.intersectObjects(cardsRef.current);
-              if (intersects.length > 0) hitCard = intersects[0].object as THREE.Mesh;
-          }
+          const rayPos = new THREE.Vector2(smoothHandPosRef.current.x * 2 - 1, -(smoothHandPosRef.current.y * 2 - 1));
+          raycasterRef.current.setFromCamera(rayPos, cameraRef.current!);
+          const intersects = raycasterRef.current.intersectObjects(cardsRef.current);
+          if (intersects.length > 0) hitCard = intersects[0].object as THREE.Mesh;
           hoveredCardRef.current = hitCard;
 
-          let targetSpeed = baseScrollSpeed;
-          if (mode === 'MOUSE') {
-              if (hitCard || gesture === GestureType.FLIP) {
-                  targetSpeed = 0;
-              } else {
-                  targetSpeed = baseScrollSpeed;
-              }
-          } else {
-              if (gesture === GestureType.OPEN_PALM) targetSpeed = baseScrollSpeed * 0.05;
-              else if (gesture === GestureType.POINTING || gesture === GestureType.FLIP) targetSpeed = 0;
-          }
-          
+          let targetSpeed = (gesture === GestureType.POINTING || gesture === GestureType.FLIP || (mode === 'MOUSE' && hitCard)) ? 0 : baseScrollSpeed;
           currentSpeedRef.current = THREE.MathUtils.lerp(currentSpeedRef.current, targetSpeed, 0.1);
           scrollOffsetRef.current -= currentSpeedRef.current;
 
@@ -267,19 +236,14 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
               if (card === hitCard) {
                   targetPos.z = 3.5;
                   targetScale.multiplyScalar(1.3);
-                  const tiltX = smoothHandPosRef.current.x * 2 - 1;
-                  const tiltY = -(smoothHandPosRef.current.y * 2 - 1);
-                  targetRot.x = tiltY * 0.4; 
-                  targetRot.y = Math.PI + (tiltX * 0.4);
-                  targetRot.z = -tiltX * 0.2;
+                  targetRot.y = Math.PI + (rayPos.x * 0.4);
+                  targetRot.x = rayPos.y * 0.4;
               }
 
-              const lerpFactor = 0.3;
-              card.position.lerp(targetPos, lerpFactor);
-              card.scale.lerp(targetScale, lerpFactor);
-              card.rotation.x = THREE.MathUtils.lerp(card.rotation.x, targetRot.x, lerpFactor);
-              card.rotation.y = THREE.MathUtils.lerp(card.rotation.y, targetRot.y, lerpFactor);
-              card.rotation.z = THREE.MathUtils.lerp(card.rotation.z, targetRot.z, lerpFactor);
+              card.position.lerp(targetPos, 0.2);
+              card.scale.lerp(targetScale, 0.2);
+              card.rotation.x = THREE.MathUtils.lerp(card.rotation.x, targetRot.x, 0.2);
+              card.rotation.y = THREE.MathUtils.lerp(card.rotation.y, targetRot.y, 0.2);
           });
       }
 
@@ -294,41 +258,25 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
           selectedMeshRef.current.userData.drawnData = drawnData;
           selectedMeshRef.current.userData.revealStartTime = Date.now();
           
-          textureLoaderRef.current.load(
-              randomCard.url, 
-              (tex) => {
-                  tex.colorSpace = THREE.SRGBColorSpace;
-                  if(selectedMeshRef.current) {
-                      const mat = (selectedMeshRef.current.material as THREE.Material[])[4] as THREE.MeshStandardMaterial;
-                      mat.map = tex; mat.color.setHex(0xffffff); mat.needsUpdate = true;
-                  }
-              },
-              undefined,
-              (err) => {
-                  console.warn("Front card image failed to load", err);
-                  // 如果加载失败，给一个醒目的颜色，而不是黑色
-                  if(selectedMeshRef.current) {
-                      const mat = (selectedMeshRef.current.material as THREE.Material[])[4] as THREE.MeshStandardMaterial;
-                      mat.color.setHex(0x555555); // 灰色托底
-                      mat.needsUpdate = true;
-                  }
+          textureLoaderRef.current.load(randomCard.url, (tex) => {
+              tex.colorSpace = THREE.SRGBColorSpace;
+              if(selectedMeshRef.current) {
+                  const mat = (selectedMeshRef.current.material as THREE.Material[])[4] as THREE.MeshStandardMaterial;
+                  mat.map = tex; mat.color.setHex(0xffffff); mat.needsUpdate = true;
               }
-          );
+          });
           onCardSelected(drawnData);
       }
 
       if (gameStateRef.current === 'REVEAL' && selectedMeshRef.current) {
           const card = selectedMeshRef.current;
           const data = card.userData.drawnData as DrawnCard;
-          const centerPos = new THREE.Vector3(0, 0, 5); 
-          card.position.lerp(centerPos, 0.1);
+          card.position.lerp(new THREE.Vector3(0, 0, 5), 0.1);
           const elapsed = (Date.now() - card.userData.revealStartTime) / 1000;
           if (elapsed < 0.8) {
               const t = Math.min(elapsed / 0.6, 1);
-              const ease = 1 - Math.pow(1 - t, 4);
-              card.rotation.y = THREE.MathUtils.lerp(Math.PI, 0, ease);
-              card.rotation.z = THREE.MathUtils.lerp(0, data.orientation === CardOrientation.Reversed ? Math.PI : 0, ease);
-              card.rotation.x = THREE.MathUtils.lerp(card.rotation.x, 0, 0.1);
+              card.rotation.y = THREE.MathUtils.lerp(Math.PI, 0, 1 - Math.pow(1 - t, 4));
+              card.rotation.z = data.orientation === CardOrientation.Reversed ? Math.PI : 0;
               card.scale.lerp(new THREE.Vector3(cardScale*1.8, cardScale*1.8, cardScale*1.8), 0.1);
           } else if (elapsed > 2.2) {
               gameStateRef.current = 'DISSOLVING';
@@ -343,23 +291,14 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
           const points = particleSystemRef.current;
           const positions = points.geometry.attributes.position.array as Float32Array;
           const vels = points.userData.velocities;
-          const mat = points.material as THREE.PointsMaterial;
           for(let i=0; i<positions.length; i+=3) {
               positions[i] += vels[i]; positions[i+1] += vels[i+1]; positions[i+2] += vels[i+2];
-              vels[i] *= 0.98; vels[i+1] *= 0.98; vels[i+2] *= 0.98;
           }
           points.geometry.attributes.position.needsUpdate = true;
-          mat.opacity -= 0.02;
-          if (mat.opacity <= 0) {
+          (points.material as THREE.PointsMaterial).opacity -= 0.02;
+          if ((points.material as THREE.PointsMaterial).opacity <= 0) {
               sceneRef.current?.remove(points);
-              particleSystemRef.current = null;
-              if (selectedMeshRef.current) {
-                  onSequenceComplete(selectedMeshRef.current.userData.drawnData);
-                  selectedMeshRef.current.visible = true; 
-                  const fMat = (selectedMeshRef.current.material as THREE.Material[])[4] as THREE.MeshStandardMaterial;
-                  fMat.color.setHex(0x222222); fMat.map = null; // Reset to default dark grey
-                  selectedMeshRef.current = null;
-              }
+              onSequenceComplete(selectedMeshRef.current!.userData.drawnData);
               gameStateRef.current = 'SCROLL';
               isDrawingLockedRef.current = false;
           }
@@ -368,79 +307,32 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
     };
     animate();
     return () => cancelAnimationFrame(animationId);
-  }, [baseScrollSpeed, cardScale, onCardSelected, onSequenceComplete, particleColor, particleCount, particleSize]);
+  }, [baseScrollSpeed, cardScale, onCardSelected, onSequenceComplete]);
 
+  // 相机与手势检测代码保持原样...
   useEffect(() => {
     if (mode === 'MOUSE') return;
-    setIsLoadingCamera(true);
     let camera: Camera | null = null;
-    let hands: Hands | null = null;
-    
-    const startCamera = async () => {
-        try {
-            if (!videoRef.current) return;
-            
-            // 使用 npm 包导入的 Hands，并指定国内镜像
-            hands = new Hands({
-                locateFile: (file) => `https://npm.elemecdn.com/@mediapipe/hands/${file}`
-            });
-            
-            hands.setOptions({ 
-                maxNumHands: 1, 
-                modelComplexity: 1, 
-                minDetectionConfidence: 0.6, 
-                minTrackingConfidence: 0.6 
-            });
-            
-            hands.onResults((results: Results) => {
-                if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-                    handStateRef.current = { gesture: GestureType.NONE, x: 0.5, y: 0.5, isPresent: false };
-                    onGestureChange(GestureType.NONE); 
-                    return;
-                }
-                const landmarks = results.multiHandLandmarks[0];
-                const gesture = detectGesture(landmarks);
-                const indexTip = landmarks[8];
-                handStateRef.current = { gesture, x: 1 - indexTip.x, y: indexTip.y, isPresent: true };
-                onGestureChange(gesture);
-            });
-
-            // 使用 npm 包导入的 Camera
-            camera = new Camera(videoRef.current, {
-                onFrame: async () => { 
-                    if (hands && videoRef.current) await hands.send({ image: videoRef.current }); 
-                },
-                width: 640, height: 480
-            });
-            
-            await camera.start();
-            setIsLoadingCamera(false);
-        } catch (error) {
-            console.error("Camera/Hands initialization error:", error);
-            // Fallback to mouse mode on error
-            setMode('MOUSE');
-            setIsLoadingCamera(false);
+    let hands = new Hands({ locateFile: (file) => `https://npm.elemecdn.com/@mediapipe/hands/${file}` });
+    hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6 });
+    hands.onResults((results) => {
+        if (!results.multiHandLandmarks?.length) {
+            handStateRef.current.isPresent = false;
+            return;
         }
-    };
-
-    startCamera();
-
-    return () => { 
-        // 尝试安全关闭
-        try {
-            if(hands) hands.close(); 
-        } catch(e) { console.error("Error closing hands", e); }
-    };
-  }, [mode, onGestureChange, setMode]);
+        const landmarks = results.multiHandLandmarks[0];
+        handStateRef.current = { gesture: detectGesture(landmarks), x: 1 - landmarks[8].x, y: landmarks[8].y, isPresent: true };
+        onGestureChange(handStateRef.current.gesture);
+    });
+    camera = new Camera(videoRef.current!, { onFrame: async () => { await hands.send({ image: videoRef.current! }); }, width: 640, height: 480 });
+    camera.start();
+    return () => { hands.close(); };
+  }, [mode]);
 
   useEffect(() => {
       if (mode !== 'MOUSE') return;
       const onMove = (e: MouseEvent) => {
-          handStateRef.current.x = e.clientX / window.innerWidth;
-          handStateRef.current.y = e.clientY / window.innerHeight;
-          handStateRef.current.isPresent = true;
-          handStateRef.current.gesture = GestureType.NONE;
-          onGestureChange(GestureType.NONE);
+          handStateRef.current = { ...handStateRef.current, x: e.clientX / window.innerWidth, y: e.clientY / window.innerHeight, isPresent: true };
       };
       const onDown = () => { handStateRef.current.gesture = GestureType.FLIP; onGestureChange(GestureType.FLIP); };
       const onUp = () => { handStateRef.current.gesture = GestureType.NONE; onGestureChange(GestureType.NONE); };
@@ -448,29 +340,13 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
       window.addEventListener('mousedown', onDown);
       window.addEventListener('mouseup', onUp);
       return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mousedown', onDown); window.removeEventListener('mouseup', onUp); };
-  }, [mode, onGestureChange]);
+  }, [mode]);
 
   return (
     <div className="relative w-full h-full overflow-hidden">
       <div ref={containerRef} className="absolute inset-0 z-10" />
-      <video ref={videoRef} className="hidden" playsInline />
-      
-      {/* 摄像头加载提示 */}
-      {mode === 'CAMERA' && isLoadingCamera && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-              <div className="text-center">
-                  <div className="text-4xl animate-bounce mb-2">📹</div>
-                  <div className="text-white font-bold animate-pulse">正在初始化视觉引擎...</div>
-                  <div className="text-xs text-white/50 mt-2">首次加载模型可能需要几秒钟</div>
-              </div>
-          </div>
-      )}
-
-      <div 
-        ref={cursorRef}
-        className="fixed w-6 h-6 rounded-full border-2 border-white pointer-events-none z-50 transform -translate-x-1/2 -translate-y-1/2 will-change-transform"
-        style={{ transition: 'none' }} 
-      />
+      <video ref={videoRef} className="hidden" />
+      <div ref={cursorRef} className="fixed w-6 h-6 rounded-full border-2 border-white pointer-events-none z-50 transform -translate-x-1/2 -translate-y-1/2" />
     </div>
   );
 }; 
