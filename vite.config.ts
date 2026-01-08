@@ -9,8 +9,9 @@ const __dirname = path.dirname(__filename);
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
-      // 核心修复：添加基础路径，必须和你 GitHub 仓库名称一致，前后都要有斜杠
-      base: '/tarot-website/', 
+      // 修复：Netlify 部署通常部署在根域名下，所以这里必须设置为 '/'
+      // 如果是部署到 GitHub Pages，才需要设置为 '/仓库名/'
+      base: '/', 
       server: {
         port: 3000,
         host: '0.0.0.0',
