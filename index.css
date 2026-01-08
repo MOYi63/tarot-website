@@ -1,6 +1,7 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* 
+  注意：由于我们使用 Tailwind CDN，这里不需要 @tailwind 指令。
+  Vite 会打包这个文件中的普通 CSS。
+*/
 
 body {
   background-color: #13002b;

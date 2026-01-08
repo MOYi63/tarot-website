@@ -4,12 +4,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>神秘塔罗</title>
+    <!-- 使用 CDN 加载 Tailwind -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       body { margin: 0; overflow: hidden; background-color: #0f172a; color: white; }
-      canvas { display: block; }
     </style>
-    <link rel="stylesheet" href="/index.css">
   <script type="importmap">
 {
   "imports": {
@@ -30,6 +29,7 @@
 </head>
   <body>
     <div id="root"></div>
+    <!-- Vite 会自动处理这个入口文件 -->
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>

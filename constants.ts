@@ -1,7 +1,9 @@
 import { TarotCardData, CardSuit, SpreadDefinition } from './types';
 
-// --- 核心修复：确保代理地址包含 https:// 协议 ---
-export const CARD_BACK_URL = "https://wsrv.nl/?url=https://raw.githubusercontent.com/iamfiscus/tarot-api/master/static/card_back.jpg&q=80&output=webp"; 
+// 使用 wsrv.nl 代理访问 Imgur 或其他外网图片，确保国内可见
+// 并对其进行压缩优化 (q=80)
+export const CARD_BACK_URL = "https://wsrv.nl/?url=raw.githubusercontent.com/iamfiscus/tarot-api/master/static/card_back.jpg&q=80&output=webp"; 
+// 备用纯色图，如果上面加载失败
 export const CARD_BACK_FALLBACK = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mN88F/rPwAI8wNQD6Y5rAAAAABJRU5ErkJggg==";
 
 // --- SPREAD DEFINITIONS (牌阵定义) ---
@@ -54,10 +56,10 @@ export const SPREADS: SpreadDefinition[] = [
   }
 ];
 
-// --- 核心修复：生成国内可访问的图片链接，添加 https:// ---
+// 辅助函数：生成国内可访问的图片链接
+// 使用 wsrv.nl 代理 github raw content
 const getCardUrl = (filename: string) => {
-    // 之前这里漏掉了 https://，导致代理失效
-    return `https://wsrv.nl/?url=https://raw.githubusercontent.com/iamfiscus/tarot-api/master/static/cards/${filename}&w=400&q=75&output=webp`;
+    return `https://wsrv.nl/?url=raw.githubusercontent.com/iamfiscus/tarot-api/master/static/cards/${filename}&w=400&q=75&output=webp`;
 };
 
 // --- MAJOR ARCANA BASE (大阿尔卡纳) ---
@@ -77,7 +79,7 @@ const MAJOR_ARCANA_BASE: Omit<TarotCardData, 'suit'>[] = [
   { id: 12, name: "XII 倒吊人 (The Hanged Man)", url: "rws12.jpg", meaningUpright: "暂停，投降，新视角，牺牲。", meaningReversed: "拖延，抵抗，停滞，无谓的牺牲。" },
   { id: 13, name: "XIII 死神 (Death)", url: "rws13.jpg", meaningUpright: "结束，改变，转变，过渡。", meaningReversed: "抗拒改变，停滞不前，无法释怀。" },
   { id: 14, name: "XIV 节制 (Temperance)", url: "rws14.jpg", meaningUpright: "平衡，适度，耐心，目标。", meaningReversed: "失衡，过度，缺乏远见。" },
-  { id: 15, name: "XV 恶魔 (The Devil)", url: "rws15.jpg", meaningUpright: "束 bondage，成瘾，唯物主义，性。", meaningReversed: "挣脱束缚，重获力量，打破枷锁。" },
+  { id: 15, name: "XV 恶魔 (The Devil)", url: "rws15.jpg", meaningUpright: "束缚，成瘾，唯物主义，性。", meaningReversed: "挣脱束缚，重获力量，打破枷锁。" },
   { id: 16, name: "XVI 高塔 (The Tower)", url: "rws16.jpg", meaningUpright: "灾难，剧变，突然的启示，骄傲的崩塌。", meaningReversed: "避免灾难，恐惧改变，延迟的破坏。" },
   { id: 17, name: "XVII 星星 (The Star)", url: "rws17.jpg", meaningUpright: "希望，信仰，目的，更新，灵性。", meaningReversed: "绝望，缺乏信心，沮丧。" },
   { id: 18, name: "XVIII 月亮 (The Moon)", url: "rws18.jpg", meaningUpright: "幻觉，恐惧，焦虑，潜意识。", meaningReversed: "释放恐惧，压抑的情感，混乱。" },

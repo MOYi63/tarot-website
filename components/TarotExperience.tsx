@@ -62,7 +62,8 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
 
   const createCardMesh = (backTex: THREE.Texture | null, index: number) => {
       const geometry = createCardGeometry();
-      const frontMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5 });
+      // 正面默认材质：稍微亮一点的灰色，确保在没图时也能看到形状
+      const frontMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 });
       const backMatParams: THREE.MeshStandardMaterialParameters = { roughness: 0.3, metalness: 0.1, color: 0xffffff };
       if (backTex) { backMatParams.map = backTex; } else { backMatParams.color = 0x6b21a8; }
       const backMat = new THREE.MeshStandardMaterial(backMatParams);
@@ -139,12 +140,15 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
     renderer.setPixelRatio(window.devicePixelRatio);
     containerRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    
+    // 增强光照，确保卡牌可见
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.9); // 提高环境光强度
     scene.add(ambientLight);
-    const spotLight = new THREE.SpotLight(0xffaa00, 30);
+    const spotLight = new THREE.SpotLight(0xffaa00, 50); // 提高聚光灯强度
     spotLight.position.set(5, 10, 10);
-    spotLight.add(new THREE.PointLight(0xffaa00, 10));
+    spotLight.add(new THREE.PointLight(0xffaa00, 15));
     scene.add(spotLight);
+    
     const deckGroup = new THREE.Group();
     deckGroupRef.current = deckGroup;
     scene.add(deckGroup);
@@ -162,7 +166,6 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
         }
     };
 
-    // Load back texture, try custom, then wsrv (optimized), then fallback (base64)
     const loadBackTexture = (url: string) => {
         textureLoaderRef.current.load(
             url, 
@@ -227,7 +230,6 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
           const totalWidth = count * spacing;
           
           let hitCard: THREE.Mesh | null = null;
-          // 优化逻辑：鼠标模式下始终检测，或者摄像头模式下指向时检测
           const shouldRaycast = mode === 'MOUSE' || gesture === GestureType.POINTING || gesture === GestureType.FLIP;
 
           if (shouldRaycast) {
@@ -238,17 +240,14 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
           }
           hoveredCardRef.current = hitCard;
 
-          // 速度控制逻辑
           let targetSpeed = baseScrollSpeed;
           if (mode === 'MOUSE') {
-              // 鼠标模式：只有在悬停或点击时才停止，否则保持滚动
               if (hitCard || gesture === GestureType.FLIP) {
                   targetSpeed = 0;
               } else {
                   targetSpeed = baseScrollSpeed;
               }
           } else {
-              // 摄像头模式：保留原有手势控制
               if (gesture === GestureType.OPEN_PALM) targetSpeed = baseScrollSpeed * 0.05;
               else if (gesture === GestureType.POINTING || gesture === GestureType.FLIP) targetSpeed = 0;
           }
@@ -265,7 +264,6 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
               let targetScale = new THREE.Vector3(cardScale, cardScale, cardScale);
               let targetRot = new THREE.Euler(0, Math.PI, 0); 
 
-              // 弹出效果：只要是被射线命中的卡牌
               if (card === hitCard) {
                   targetPos.z = 3.5;
                   targetScale.multiplyScalar(1.3);
@@ -296,14 +294,26 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
           selectedMeshRef.current.userData.drawnData = drawnData;
           selectedMeshRef.current.userData.revealStartTime = Date.now();
           
-          // 使用优化后的图片链接加载
-          textureLoaderRef.current.load(randomCard.url, (tex) => {
-              tex.colorSpace = THREE.SRGBColorSpace;
-              if(selectedMeshRef.current) {
-                  const mat = (selectedMeshRef.current.material as THREE.Material[])[4] as THREE.MeshStandardMaterial;
-                  mat.map = tex; mat.color.setHex(0xffffff); mat.needsUpdate = true;
+          textureLoaderRef.current.load(
+              randomCard.url, 
+              (tex) => {
+                  tex.colorSpace = THREE.SRGBColorSpace;
+                  if(selectedMeshRef.current) {
+                      const mat = (selectedMeshRef.current.material as THREE.Material[])[4] as THREE.MeshStandardMaterial;
+                      mat.map = tex; mat.color.setHex(0xffffff); mat.needsUpdate = true;
+                  }
+              },
+              undefined,
+              (err) => {
+                  console.warn("Front card image failed to load", err);
+                  // 如果加载失败，给一个醒目的颜色，而不是黑色
+                  if(selectedMeshRef.current) {
+                      const mat = (selectedMeshRef.current.material as THREE.Material[])[4] as THREE.MeshStandardMaterial;
+                      mat.color.setHex(0x555555); // 灰色托底
+                      mat.needsUpdate = true;
+                  }
               }
-          });
+          );
           onCardSelected(drawnData);
       }
 
@@ -347,7 +357,7 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
                   onSequenceComplete(selectedMeshRef.current.userData.drawnData);
                   selectedMeshRef.current.visible = true; 
                   const fMat = (selectedMeshRef.current.material as THREE.Material[])[4] as THREE.MeshStandardMaterial;
-                  fMat.color.setHex(0x111111); fMat.map = null;
+                  fMat.color.setHex(0x222222); fMat.map = null; // Reset to default dark grey
                   selectedMeshRef.current = null;
               }
               gameStateRef.current = 'SCROLL';
@@ -370,8 +380,7 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
         try {
             if (!videoRef.current) return;
             
-            // 使用 npm 包导入的 Hands，不使用 window.Hands
-            // 关键：指定 locateFile 使用国内 npm 镜像，解决 cdn.jsdelivr.net 被墙问题
+            // 使用 npm 包导入的 Hands，并指定国内镜像
             hands = new Hands({
                 locateFile: (file) => `https://npm.elemecdn.com/@mediapipe/hands/${file}`
             });
@@ -417,8 +426,10 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
     startCamera();
 
     return () => { 
-        if(hands) hands.close(); 
-        // Camera stop might not be exposed directly in Typescript types sometimes, but cleanup is good practice
+        // 尝试安全关闭
+        try {
+            if(hands) hands.close(); 
+        } catch(e) { console.error("Error closing hands", e); }
     };
   }, [mode, onGestureChange, setMode]);
 
