@@ -44,7 +44,7 @@ const App: React.FC = () => {
   const generateInterpretation = async (card: DrawnCard) => {
     if (!process.env.API_KEY) {
         console.warn("API_KEY not found");
-        setAiError("未检测到 API Key，请检查配置。");
+        setAiError("未检测到 API Key，请检查 Netlify 环境变量配置并重新部署。");
         return;
     }
 
@@ -347,6 +347,22 @@ const App: React.FC = () => {
              </div>
              
              <div className="space-y-6">
+                 
+                 {/* System Status - NEW FEATURE FOR USER VERIFICATION */}
+                 <div className="mb-4 p-3 bg-purple-500/10 rounded-lg border border-purple-500/20">
+                     <div className="flex justify-between items-center text-xs">
+                         <span className="text-white/70">API Key 状态</span>
+                         <span className={process.env.API_KEY ? "text-green-400 font-bold" : "text-red-400 font-bold"}>
+                             {process.env.API_KEY ? "已连接 (Connected)" : "未检测到 (Missing)"}
+                         </span>
+                     </div>
+                     {!process.env.API_KEY && (
+                         <div className="mt-2 text-[10px] text-red-300/80 leading-tight">
+                             未检测到 API Key。请检查 Netlify 环境变量配置并手动 Trigger Deploy 重新部署。
+                         </div>
+                     )}
+                 </div>
+
                  {/* Visuals */}
                  <div>
                     <label className="block text-xs text-white/60 mb-3 uppercase tracking-wide font-bold">场景设置 (Scene)</label>

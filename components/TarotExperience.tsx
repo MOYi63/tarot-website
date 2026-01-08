@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { Camera } from '@mediapipe/camera_utils';
 import { Hands, Results } from '@mediapipe/hands';
-import { GET_DECK, CARD_BACK_URL } from '../constants';
+import { GET_DECK, CARD_BACK_URL, CARD_BACK_FALLBACK } from '../constants';
 import { CardOrientation, DrawnCard, GestureType, HandState, InteractionMode, SpreadDefinition } from '../types';
 
 interface TarotExperienceProps {
@@ -55,6 +55,8 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
   
   const textureLoaderRef = useRef(new THREE.TextureLoader());
   const backTextureRef = useRef<THREE.Texture | null>(null);
+
+  const [isLoadingCamera, setIsLoadingCamera] = useState(false);
 
   const createCardGeometry = () => new THREE.BoxGeometry(3, 5, 0.05);
 
@@ -160,10 +162,26 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
         }
     };
 
-    textureLoaderRef.current.load(customBackUrl || CARD_BACK_URL, (tex) => {
-            backTextureRef.current = tex;
-            initCards(tex);
-        }, undefined, () => initCards(null));
+    // Load back texture, try custom, then wsrv (optimized), then fallback (base64)
+    const loadBackTexture = (url: string) => {
+        textureLoaderRef.current.load(
+            url, 
+            (tex) => {
+                backTextureRef.current = tex;
+                initCards(tex);
+            },
+            undefined,
+            (err) => {
+                console.warn("Failed to load texture, trying fallback", err);
+                if (url !== CARD_BACK_FALLBACK) {
+                    loadBackTexture(CARD_BACK_FALLBACK);
+                } else {
+                    initCards(null);
+                }
+            }
+        );
+    }
+    loadBackTexture(customBackUrl || CARD_BACK_URL);
 
     const handleResize = () => {
       camera.aspect = window.innerWidth / window.innerHeight;
@@ -277,10 +295,14 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
           const drawnData = { ...randomCard, orientation, timestamp: Date.now() };
           selectedMeshRef.current.userData.drawnData = drawnData;
           selectedMeshRef.current.userData.revealStartTime = Date.now();
+          
+          // 使用优化后的图片链接加载
           textureLoaderRef.current.load(randomCard.url, (tex) => {
               tex.colorSpace = THREE.SRGBColorSpace;
-              const mat = (selectedMeshRef.current!.material as THREE.Material[])[4] as THREE.MeshStandardMaterial;
-              mat.map = tex; mat.color.setHex(0xffffff); mat.needsUpdate = true;
+              if(selectedMeshRef.current) {
+                  const mat = (selectedMeshRef.current.material as THREE.Material[])[4] as THREE.MeshStandardMaterial;
+                  mat.map = tex; mat.color.setHex(0xffffff); mat.needsUpdate = true;
+              }
           });
           onCardSelected(drawnData);
       }
@@ -340,34 +362,65 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
 
   useEffect(() => {
     if (mode === 'MOUSE') return;
+    setIsLoadingCamera(true);
     let camera: Camera | null = null;
     let hands: Hands | null = null;
-    const onResults = (results: Results) => {
-        if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-            handStateRef.current = { gesture: GestureType.NONE, x: 0.5, y: 0.5, isPresent: false };
-            onGestureChange(GestureType.NONE); return;
+    
+    const startCamera = async () => {
+        try {
+            if (!videoRef.current) return;
+            
+            // 使用 npm 包导入的 Hands，不使用 window.Hands
+            // 关键：指定 locateFile 使用国内 npm 镜像，解决 cdn.jsdelivr.net 被墙问题
+            hands = new Hands({
+                locateFile: (file) => `https://npm.elemecdn.com/@mediapipe/hands/${file}`
+            });
+            
+            hands.setOptions({ 
+                maxNumHands: 1, 
+                modelComplexity: 1, 
+                minDetectionConfidence: 0.6, 
+                minTrackingConfidence: 0.6 
+            });
+            
+            hands.onResults((results: Results) => {
+                if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+                    handStateRef.current = { gesture: GestureType.NONE, x: 0.5, y: 0.5, isPresent: false };
+                    onGestureChange(GestureType.NONE); 
+                    return;
+                }
+                const landmarks = results.multiHandLandmarks[0];
+                const gesture = detectGesture(landmarks);
+                const indexTip = landmarks[8];
+                handStateRef.current = { gesture, x: 1 - indexTip.x, y: indexTip.y, isPresent: true };
+                onGestureChange(gesture);
+            });
+
+            // 使用 npm 包导入的 Camera
+            camera = new Camera(videoRef.current, {
+                onFrame: async () => { 
+                    if (hands && videoRef.current) await hands.send({ image: videoRef.current }); 
+                },
+                width: 640, height: 480
+            });
+            
+            await camera.start();
+            setIsLoadingCamera(false);
+        } catch (error) {
+            console.error("Camera/Hands initialization error:", error);
+            // Fallback to mouse mode on error
+            setMode('MOUSE');
+            setIsLoadingCamera(false);
         }
-        const landmarks = results.multiHandLandmarks[0];
-        const gesture = detectGesture(landmarks);
-        const indexTip = landmarks[8];
-        // 原始数据更新
-        handStateRef.current = { gesture, x: 1 - indexTip.x, y: indexTip.y, isPresent: true };
-        onGestureChange(gesture);
     };
-    if (videoRef.current) {
-        // @ts-ignore
-        hands = new window.Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
-        hands.onResults(onResults);
-        // @ts-ignore
-        camera = new window.Camera(videoRef.current, {
-            onFrame: async () => { if (hands && videoRef.current) await hands.send({ image: videoRef.current }); },
-            width: 640, height: 480
-        });
-        camera.start();
-    }
-    return () => { if(hands) hands.close(); };
-  }, [mode, onGestureChange]);
+
+    startCamera();
+
+    return () => { 
+        if(hands) hands.close(); 
+        // Camera stop might not be exposed directly in Typescript types sometimes, but cleanup is good practice
+    };
+  }, [mode, onGestureChange, setMode]);
 
   useEffect(() => {
       if (mode !== 'MOUSE') return;
@@ -375,7 +428,6 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
           handStateRef.current.x = e.clientX / window.innerWidth;
           handStateRef.current.y = e.clientY / window.innerHeight;
           handStateRef.current.isPresent = true;
-          // 移动时默认无特殊手势，以便滚动继续
           handStateRef.current.gesture = GestureType.NONE;
           onGestureChange(GestureType.NONE);
       };
@@ -392,6 +444,17 @@ const TarotExperience: React.FC<TarotExperienceProps> = ({
       <div ref={containerRef} className="absolute inset-0 z-10" />
       <video ref={videoRef} className="hidden" playsInline />
       
+      {/* 摄像头加载提示 */}
+      {mode === 'CAMERA' && isLoadingCamera && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+              <div className="text-center">
+                  <div className="text-4xl animate-bounce mb-2">📹</div>
+                  <div className="text-white font-bold animate-pulse">正在初始化视觉引擎...</div>
+                  <div className="text-xs text-white/50 mt-2">首次加载模型可能需要几秒钟</div>
+              </div>
+          </div>
+      )}
+
       <div 
         ref={cursorRef}
         className="fixed w-6 h-6 rounded-full border-2 border-white pointer-events-none z-50 transform -translate-x-1/2 -translate-y-1/2 will-change-transform"
